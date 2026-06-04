@@ -27,8 +27,13 @@
       icons:[ {src:ICON192,sizes:'192x192',type:'image/png',purpose:'any'},
               {src:ICON512,sizes:'512x512',type:'image/png',purpose:'any'},
               {src:ICON512,sizes:'512x512',type:'image/png',purpose:'maskable'} ] };
-    var blob=new Blob([JSON.stringify(mf)],{type:'application/manifest+json'});
-    var link=document.getElementById('manifestLink'); if(link) link.href=URL.createObjectURL(blob);
+    // 실제 manifest 파일이 없을 때만(fetch 실패) blob 으로 보강. 파일이 있으면 그대로 둬서 '앱 설치'(WebAPK)가 가능하게 함.
+    fetch(document.getElementById('manifestLink').href, {method:'HEAD'}).then(function(r){
+      if(!r.ok) throw 0;
+    }).catch(function(){
+      try{ var blob=new Blob([JSON.stringify(mf)],{type:'application/manifest+json'});
+        var link=document.getElementById('manifestLink'); if(link) link.href=URL.createObjectURL(blob); }catch(e){}
+    });
   }catch(e){}
 })();
 </script>
