@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<title>필드로그 · 캠핑 · 낚시 기록</title>
+<meta name="theme-color" content="#16433e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="필드로그">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="./icons/icon-192.png">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=Gowun+Dodum&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+
+<style>
+:root{
+  --bg:#f4eddf; --bg2:#ece2cf; --surface:#fffdf7; --surface2:#faf4e8;
+  --ink:#22302d; --ink-soft:#5e6c66; --ink-faint:#94978c; --line:#e4d9c3;
+  --primary:#1f5e57; --primary-d:#163f3a; --primary-soft:#e1efe9;
+  --camp:#d2842a; --camp-d:#b06d1f; --camp-soft:#fbeed7;
+  --fish:#2e85a4; --fish-d:#216a86; --fish-soft:#dcedf3;
+  --star:#e6a82e; --danger:#c0563f; --danger-soft:#f7e2dc;
+  --shadow:0 8px 24px rgba(40,40,30,.12); --shadow-s:0 2px 8px rgba(40,40,30,.08);
+  --radius:18px; --radius-s:12px;
+  --nav-h:64px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{
+  font-family:'Gowun Dodum',-apple-system,sans-serif;
+  background:var(--bg); color:var(--ink);
+  line-height:1.5; overscroll-behavior-y:none;
+  padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom));
+}
+h1,h2,h3,.serif,.brand{font-family:'Gowun Batang',serif}
+button{font-family:inherit; cursor:pointer; border:none; background:none; color:inherit}
+input,select,textarea{font-family:inherit; font-size:16px}
+.hidden{display:none !important}
+
+/* ---------- Header ---------- */
+header{
+  position:sticky; top:0; z-index:50;
+  background:linear-gradient(135deg,var(--primary-d),var(--primary) 60%,#2c7d76);
+  color:#fdf7ea; padding:calc(env(safe-area-inset-top) + 16px) 20px 14px;
+  box-shadow:0 4px 14px rgba(22,63,58,.28);
+}
+header .brand{font-size:22px; font-weight:700; letter-spacing:.5px; display:flex; align-items:center; gap:9px}
+header .brand .logo{width:30px;height:30px;border-radius:9px;display:block;box-shadow:0 2px 6px rgba(0,0,0,.25)}
+header .sub{font-size:12.5px; opacity:.82; margin-top:2px; letter-spacing:.3px}
+.stats{display:flex; gap:8px; margin-top:13px}
+.stat{flex:1; background:rgba(255,255,255,.13); border:1px solid rgba(255,255,255,.18); border-radius:12px; padding:8px 10px; backdrop-filter:blur(4px)}
+.stat .n{font-family:'Gowun Batang',serif; font-size:20px; font-weight:700; line-height:1}
+.stat .l{font-size:11px; opacity:.8; margin-top:3px}
+
+/* ---------- Tabs / panels ---------- */
+.panel{display:none; padding:16px 16px 24px; animation:fade .3s ease}
+.panel.active{display:block}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ---------- Filter chips ---------- */
+.chips{display:flex; gap:8px; margin-bottom:14px}
+.chip{padding:7px 15px; border-radius:999px; font-size:13.5px; background:var(--surface); border:1.5px solid var(--line); color:var(--ink-soft); transition:.15s}
+.chip.active{background:var(--primary); border-color:var(--primary); color:#fff; box-shadow:var(--shadow-s)}
+.chip.camp.active{background:var(--camp); border-color:var(--camp)}
+.chip.fish.active{background:var(--fish); border-color:var(--fish)}
+
+/* ---------- List cards ---------- */
+.list{display:flex; flex-direction:column; gap:12px}
+.card{
+  background:var(--surface); border-radius:var(--radius); overflow:hidden;
+  box-shadow:var(--shadow-s); display:flex; border:1px solid var(--line);
+  transition:transform .12s; position:relative;
+}
+.card:active{transform:scale(.985)}
+.card .thumb{width:104px; min-width:104px; background:var(--bg2); object-fit:cover; align-self:stretch}
+.card .thumb.empty{display:flex;align-items:center;justify-content:center;font-size:30px;opacity:.5}
+.card .body{padding:12px 13px; flex:1; min-width:0}
+.card .top{display:flex; align-items:center; gap:7px; margin-bottom:3px}
+.badge{font-size:11px; font-weight:700; padding:3px 9px; border-radius:999px; letter-spacing:.3px; white-space:nowrap}
+.badge.camp{background:var(--camp-soft); color:var(--camp-d)}
+.badge.fish{background:var(--fish-soft); color:var(--fish-d)}
+.card .date{font-size:12px; color:var(--ink-faint); margin-left:auto}
+.card .title{font-family:'Gowun Batang',serif; font-size:16.5px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.card .place{font-size:12.5px; color:var(--ink-soft); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.card .meta{display:flex; gap:10px; flex-wrap:wrap; margin-top:7px; font-size:12px; color:var(--ink-soft)}
+.card .meta span{display:inline-flex; align-items:center; gap:3px}
+.stars{color:var(--star); font-size:13px; letter-spacing:1px}
+.stars .off{color:#dfd6c4}
+.syncing{position:absolute; top:8px; right:8px; font-size:10px; background:rgba(31,94,87,.9); color:#fff; padding:2px 7px; border-radius:999px}
+
+.empty-state{text-align:center; padding:54px 20px; color:var(--ink-faint)}
+.empty-state .ico{font-size:46px; margin-bottom:10px}
+.empty-state .t{font-family:'Gowun Batang',serif; font-size:17px; color:var(--ink-soft)}
+
+/* ---------- FAB ---------- */
+.fab{
+  position:fixed; right:18px; bottom:calc(var(--nav-h) + 16px + env(safe-area-inset-bottom));
+  width:58px; height:58px; border-radius:50%; z-index:60;
+  background:linear-gradient(145deg,#2c7d76,var(--primary-d));
+  color:#fff; font-size:30px; line-height:58px; text-align:center;
+  box-shadow:0 8px 22px rgba(22,63,58,.42); transition:transform .15s;
+}
+.fab:active{transform:scale(.92)}
+
+/* ---------- Bottom nav ---------- */
+nav{
+  position:fixed; left:0; right:0; bottom:0; z-index:70;
+  height:calc(var(--nav-h) + env(safe-area-inset-bottom));
+  padding-bottom:env(safe-area-inset-bottom);
+  background:var(--surface); border-top:1px solid var(--line);
+  display:flex; box-shadow:0 -3px 14px rgba(40,40,30,.06);
+}
+nav button{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; color:var(--ink-faint); font-size:11px; transition:.15s}
+nav button svg{width:23px; height:23px; stroke-width:1.9}
+nav button.active{color:var(--primary)}
+
+/* ---------- Map ---------- */
+#map{height:calc(100vh - 124px - var(--nav-h) - env(safe-area-inset-top) - env(safe-area-inset-bottom)); min-height:340px; border-radius:var(--radius); overflow:hidden; box-shadow:var(--shadow-s); border:1px solid var(--line)}
+.pin{display:flex; align-items:center; justify-content:center; width:34px; height:34px; border-radius:50% 50% 50% 0; transform:rotate(-45deg); box-shadow:0 3px 7px rgba(0,0,0,.3); border:2px solid #fff}
+.pin span{transform:rotate(45deg); font-size:16px}
+.pin.camp{background:var(--camp)} .pin.fish{background:var(--fish)}
+.leaflet-popup-content{margin:10px 12px; font-family:'Gowun Dodum',sans-serif}
+.popup img{width:100%; height:96px; object-fit:cover; border-radius:9px; margin-bottom:7px}
+.popup .pt{font-family:'Gowun Batang',serif; font-weight:700; font-size:15px}
+.popup .pd{font-size:12px; color:var(--ink-soft); margin:2px 0 8px}
+.popup button{background:var(--primary); color:#fff; width:100%; padding:7px; border-radius:8px; font-size:13px}
+
+/* ---------- Calendar ---------- */
+.cal-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:14px}
+.cal-head h2{font-size:19px; margin:0}
+.cal-head button{width:38px; height:38px; border-radius:11px; background:var(--surface); border:1px solid var(--line); font-size:18px; color:var(--primary); box-shadow:var(--shadow-s)}
+.dow{display:grid; grid-template-columns:repeat(7,1fr); gap:5px; margin-bottom:5px}
+.dow div{text-align:center; font-size:11.5px; color:var(--ink-faint); padding:4px 0}
+.dow div:first-child{color:#cf6a52} .dow div:last-child{color:#3f7fb0}
+.grid{display:grid; grid-template-columns:repeat(7,1fr); gap:5px}
+.cell{aspect-ratio:1/1.12; background:var(--surface); border:1px solid var(--line); border-radius:11px; padding:5px 4px 4px; position:relative; overflow:hidden; transition:.12s}
+.cell.empty{background:transparent; border:none}
+.cell.has:active{transform:scale(.95)}
+.cell .dn{font-size:12px; color:var(--ink-soft)}
+.cell.today{border-color:var(--primary); border-width:2px}
+.cell.today .dn{color:var(--primary); font-weight:700}
+.cell .dots{position:absolute; bottom:5px; left:0; right:0; display:flex; gap:3px; justify-content:center}
+.cell .dot{width:7px; height:7px; border-radius:50%}
+.cell .dot.camp{background:var(--camp)} .cell .dot.fish{background:var(--fish)}
+.cell .thumbbg{position:absolute; inset:0; background-size:cover; background-position:center; opacity:.32}
+.cell .cnt{position:absolute; top:4px; right:5px; font-size:10px; font-weight:700; color:var(--primary)}
+.cal-legend{display:flex; gap:16px; justify-content:center; margin-top:14px; font-size:12px; color:var(--ink-soft)}
+.cal-legend span{display:inline-flex; align-items:center; gap:5px}
+.cal-legend i{width:9px; height:9px; border-radius:50%; display:inline-block}
+
+/* ---------- Modal / Sheet ---------- */
+.overlay{position:fixed; inset:0; z-index:100; background:rgba(28,30,24,.5); backdrop-filter:blur(3px); display:none; align-items:flex-end; justify-content:center}
+.overlay.open{display:flex; animation:fade .2s}
+.sheet{
+  background:var(--bg); width:100%; max-width:560px; max-height:94vh; overflow-y:auto;
+  border-radius:22px 22px 0 0; box-shadow:var(--shadow); animation:slideup .28s cubic-bezier(.2,.8,.25,1);
+  padding-bottom:calc(20px + env(safe-area-inset-bottom));
+}
+@keyframes slideup{from{transform:translateY(100%)}to{transform:none}}
+.sheet-head{position:sticky; top:0; background:var(--bg); padding:16px 18px 12px; display:flex; align-items:center; gap:10px; z-index:5; border-bottom:1px solid var(--line)}
+.sheet-head h2{font-size:18px; margin:0; flex:1}
+.sheet-head .x{width:34px; height:34px; border-radius:10px; font-size:20px; color:var(--ink-soft); background:var(--surface2)}
+.grab{width:42px; height:5px; border-radius:3px; background:var(--line); margin:8px auto 0}
+.sheet-body{padding:16px 18px}
+
+/* ---------- Form ---------- */
+.typetoggle{display:flex; gap:10px; margin-bottom:18px}
+.typetoggle button{flex:1; padding:15px; border-radius:14px; border:2px solid var(--line); background:var(--surface); font-size:15px; font-weight:700; display:flex; flex-direction:column; align-items:center; gap:5px; transition:.15s; color:var(--ink-soft)}
+.typetoggle button .ti{font-size:24px}
+.typetoggle button.on.camp{border-color:var(--camp); background:var(--camp-soft); color:var(--camp-d)}
+.typetoggle button.on.fish{border-color:var(--fish); background:var(--fish-soft); color:var(--fish-d)}
+.field{margin-bottom:15px}
+.field > label{display:block; font-size:13px; font-weight:700; color:var(--ink-soft); margin-bottom:6px}
+.field input[type=text],.field input[type=date],.field input[type=time],.field input[type=number],.field select,.field textarea{
+  width:100%; padding:12px 13px; border:1.5px solid var(--line); border-radius:12px; background:var(--surface); color:var(--ink); transition:.15s;
+}
+.field input:focus,.field select:focus,.field textarea:focus{outline:none; border-color:var(--primary); box-shadow:0 0 0 3px var(--primary-soft)}
+.field textarea{resize:vertical; min-height:70px}
+.row2{display:flex; gap:10px}.row2 > *{flex:1}
+.star-input{display:flex; gap:4px; font-size:30px; color:#dcd3c1}
+.star-input span{transition:.1s} .star-input span.on{color:var(--star)}
+.qchips{display:flex; gap:7px; flex-wrap:wrap}
+.qchip{padding:8px 13px; border-radius:999px; border:1.5px solid var(--line); background:var(--surface); font-size:13px; color:var(--ink-soft); transition:.12s}
+.qchip.on{background:var(--primary); border-color:var(--primary); color:#fff}
+.loc-row{display:flex; gap:8px; margin-bottom:8px}
+.loc-row button{flex:1; padding:11px; border-radius:12px; background:var(--primary-soft); color:var(--primary-d); font-weight:700; font-size:13.5px; border:1.5px solid var(--primary-soft); display:flex; align-items:center; justify-content:center; gap:6px}
+.loc-row button:active{background:#cfe7df}
+#pickmap{height:170px; border-radius:12px; overflow:hidden; border:1.5px solid var(--line); margin-bottom:6px}
+.loc-hint{font-size:11.5px; color:var(--ink-faint)}
+.photo-grid{display:flex; gap:9px; flex-wrap:wrap}
+.photo-add{width:78px; height:78px; border-radius:12px; border:2px dashed var(--line); display:flex; flex-direction:column; align-items:center; justify-content:center; color:var(--ink-faint); font-size:11px; gap:2px; background:var(--surface)}
+.photo-add .pa{font-size:22px}
+.photo-thumb{width:78px; height:78px; border-radius:12px; object-fit:cover; position:relative}
+.photo-wrap{position:relative}
+.photo-wrap .rm{position:absolute; top:-6px; right:-6px; width:22px; height:22px; border-radius:50%; background:var(--danger); color:#fff; font-size:13px; line-height:22px; text-align:center; box-shadow:var(--shadow-s)}
+.submit{width:100%; padding:16px; border-radius:14px; background:linear-gradient(135deg,var(--primary),var(--primary-d)); color:#fff; font-size:16px; font-weight:700; box-shadow:var(--shadow); margin-top:6px}
+.submit:disabled{opacity:.6}
+
+/* ---------- Detail ---------- */
+.detail-photos{display:flex; gap:8px; overflow-x:auto; padding-bottom:4px; margin:0 -2px 14px; scroll-snap-type:x mandatory}
+.detail-photos img{height:200px; min-width:78%; object-fit:cover; border-radius:14px; scroll-snap-align:center; cursor:zoom-in}
+.detail-photos.single img{min-width:100%}
+.drow{display:flex; padding:11px 0; border-bottom:1px solid var(--line); font-size:14px}
+.drow .k{width:90px; min-width:90px; color:var(--ink-faint); font-size:13px}
+.drow .v{flex:1; color:var(--ink)}
+.detail-actions{display:flex; gap:10px; margin-top:18px}
+.detail-actions button{flex:1; padding:13px; border-radius:12px; font-size:14.5px; font-weight:700}
+.btn-edit{background:var(--primary-soft); color:var(--primary-d)}
+.btn-del{background:var(--danger-soft); color:var(--danger)}
+.dtitle{font-family:'Gowun Batang',serif; font-size:22px; font-weight:700; line-height:1.25}
+.dsub{font-size:13px; color:var(--ink-soft); margin:4px 0 14px; display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+
+/* lightbox */
+.lightbox{position:fixed; inset:0; z-index:200; background:rgba(0,0,0,.92); display:none; align-items:center; justify-content:center}
+.lightbox.open{display:flex}
+.lightbox img{max-width:96%; max-height:90%; border-radius:8px}
+
+/* toast & banner */
+.toast{position:fixed; left:50%; bottom:calc(var(--nav-h) + 30px + env(safe-area-inset-bottom)); transform:translateX(-50%); background:var(--ink); color:#fff; padding:11px 20px; border-radius:999px; font-size:13.5px; z-index:300; box-shadow:var(--shadow); opacity:0; transition:.25s; pointer-events:none}
+.toast.show{opacity:1; transform:translateX(-50%) translateY(-4px)}
+.banner{background:var(--danger-soft); color:var(--danger); border:1px solid #e9c4ba; border-radius:12px; padding:11px 13px; font-size:12.5px; margin-bottom:14px; line-height:1.45}
+.banner b{font-weight:700}
+.footer-sig{text-align:center; font-size:10px; letter-spacing:1.5px; color:var(--ink-faint); padding:18px 0 6px; opacity:.7}
+.spinner{display:inline-block; width:15px; height:15px; border:2.5px solid rgba(255,255,255,.4); border-top-color:#fff; border-radius:50%; animation:spin .7s linear infinite; vertical-align:-2px}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand"><img class="logo" src="./icons/icon-192.png" alt="">필드로그</div>
+  <div class="sub">캠핑 · 낚시 기록 노트</div>
+  <div class="stats">
+    <div class="stat"><div class="n" id="stTotal">0</div><div class="l">전체 기록</div></div>
+    <div class="stat"><div class="n" id="stCamp">0</div><div class="l">⛺ 캠핑</div></div>
+    <div class="stat"><div class="n" id="stFish">0</div><div class="l">🎣 낚시</div></div>
+  </div>
+</header>
+
+<!-- TAB 1 : LIST -->
+<section class="panel active" id="tab-list">
+  <div id="cfgBanner" class="banner hidden"></div>
+  <div class="chips" id="listFilter">
+    <button class="chip active" data-f="all">전체</button>
+    <button class="chip camp" data-f="camping">⛺ 캠핑</button>
+    <button class="chip fish" data-f="fishing">🎣 낚시</button>
+  </div>
+  <div class="list" id="listView"></div>
+</section>
+
+<!-- TAB 2 : MAP -->
+<section class="panel" id="tab-map">
+  <div class="chips" id="mapFilter">
+    <button class="chip active" data-f="all">전체</button>
+    <button class="chip camp" data-f="camping">⛺ 캠핑</button>
+    <button class="chip fish" data-f="fishing">🎣 낚시</button>
+  </div>
+  <div id="map"></div>
+</section>
+
+<!-- TAB 3 : CALENDAR -->
+<section class="panel" id="tab-cal">
+  <div class="cal-head">
+    <button id="calPrev">‹</button>
+    <h2 id="calTitle">2026.06</h2>
+    <button id="calNext">›</button>
+  </div>
+  <div class="dow"><div>일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div>토</div></div>
+  <div class="grid" id="calGrid"></div>
+  <div class="cal-legend">
+    <span><i style="background:var(--camp)"></i>캠핑</span>
+    <span><i style="background:var(--fish)"></i>낚시</span>
+  </div>
+  <div class="footer-sig">DEVELOPED BY DONGGU KANG</div>
+</section>
+
+<button class="fab" id="fab">+</button>
+
+<nav>
+  <button class="active" data-tab="list">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+    기록
+  </button>
+  <button data-tab="map">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M1 6v15l7-3 8 3 7-3V3l-7 3-8-3-7 3z"/><line x1="8" y1="3" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="21"/></svg>
+    지도
+  </button>
+  <button data-tab="cal">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+    캘린더
+  </button>
+</nav>
+
+<!-- FORM SHEET -->
+<div class="overlay" id="formOverlay">
+  <div class="sheet">
+    <div class="grab"></div>
+    <div class="sheet-head"><h2 id="formTitle">새 기록</h2><button class="x" id="formClose">✕</button></div>
+    <div class="sheet-body">
+      <div class="typetoggle">
+        <button id="tBtnCamp" class="camp" data-t="camping"><span class="ti">⛺</span>캠핑</button>
+        <button id="tBtnFish" class="fish" data-t="fishing"><span class="ti">🎣</span>낚시</button>
+      </div>
+
+      <div class="field"><label>제목 / 장소 이름</label><input type="text" id="fTitle" placeholder="예) 가평 자라섬 / 영종도 방파제"></div>
+
+      <div class="row2">
+        <div class="field"><label>방문일</label><input type="date" id="fDate"></div>
+        <div class="field"><label>평가</label><div class="star-input" id="fStars"><span data-v="1">★</span><span data-v="2">★</span><span data-v="3">★</span><span data-v="4">★</span><span data-v="5">★</span></div></div>
+      </div>
+
+      <!-- Location -->
+      <div class="field">
+        <label>위치</label>
+        <div class="loc-row">
+          <button type="button" id="gpsBtn">📍 현재 위치</button>
+        </div>
+        <div id="pickmap"></div>
+        <div class="loc-hint">지도를 탭하거나 핀을 드래그해 위치를 조정하세요.</div>
+        <input type="text" id="fPlace" placeholder="장소명 / 주소 (자동 입력 가능)" style="margin-top:8px">
+      </div>
+
+      <!-- weather + companions (both) -->
+      <div class="field"><label>날씨</label><div class="qchips" id="fWeather">
+        <button type="button" class="qchip" data-v="맑음">☀️ 맑음</button>
+        <button type="button" class="qchip" data-v="구름">⛅ 구름</button>
+        <button type="button" class="qchip" data-v="흐림">☁️ 흐림</button>
+        <button type="button" class="qchip" data-v="비">🌧️ 비</button>
+        <button type="button" class="qchip" data-v="눈">❄️ 눈</button>
+        <button type="button" class="qchip" data-v="바람">💨 바람</button>
+      </div></div>
+      <div class="field"><label>동행</label><input type="text" id="fComp" placeholder="예) 혼자 / 가족 / 친구 2명"></div>
+
+      <!-- CAMPING fields -->
+      <div id="campFields">
+        <div class="row2">
+          <div class="field"><label>비용 (원)</label><input type="number" id="fPrice" inputmode="numeric" placeholder="예) 45000"></div>
+          <div class="field"><label>숙박</label>
+            <select id="fStay"><option value="">선택</option><option>당일</option><option>1박</option><option>2박</option><option>3박+</option></select>
+          </div>
+        </div>
+        <div class="field"><label>캠핑장 유형</label><div class="qchips" id="fCampType">
+          <button type="button" class="qchip" data-v="오토캠핑">오토캠핑</button>
+          <button type="button" class="qchip" data-v="노지">노지</button>
+          <button type="button" class="qchip" data-v="글램핑">글램핑</button>
+          <button type="button" class="qchip" data-v="백패킹">백패킹</button>
+          <button type="button" class="qchip" data-v="일반">일반</button>
+        </div></div>
+        <div class="field"><label>재방문 의사</label><div class="qchips" id="fRevisit">
+          <button type="button" class="qchip" data-v="Y">👍 또 가고 싶다</button>
+          <button type="button" class="qchip" data-v="N">👎 글쎄</button>
+        </div></div>
+      </div>
+
+      <!-- FISHING fields -->
+      <div id="fishFields">
+        <div class="row2">
+          <div class="field"><label>시작 시간</label><input type="time" id="fStart"></div>
+          <div class="field"><label>종료 시간</label><input type="time" id="fEnd"></div>
+        </div>
+        <div class="field"><label>잡은 어종</label><input type="text" id="fSpecies" placeholder="예) 우럭, 광어, 농어"></div>
+        <div class="row2">
+          <div class="field"><label>마릿수</label><input type="number" id="fCount" inputmode="numeric" placeholder="예) 7"></div>
+          <div class="field"><label>화장실</label>
+            <select id="fToilet"><option value="">선택</option><option value="Y">있음</option><option value="N">없음</option></select>
+          </div>
+        </div>
+        <div class="field"><label>물때</label><div class="qchips" id="fTide">
+          <button type="button" class="qchip" data-v="들물">들물</button>
+          <button type="button" class="qchip" data-v="날물">날물</button>
+          <button type="button" class="qchip" data-v="만조">만조</button>
+          <button type="button" class="qchip" data-v="간조">간조</button>
+        </div></div>
+        <div class="field"><label>미끼 / 채비</label><input type="text" id="fBait" placeholder="예) 청갯지렁이, 지그헤드 + 웜"></div>
+      </div>
+
+      <div class="field"><label>메모</label><textarea id="fMemo" placeholder="이날의 기억, 포인트, 팁 등을 적어보세요"></textarea></div>
+
+      <div class="field">
+        <label>사진</label>
+        <div class="photo-grid" id="photoGrid">
+          <label class="photo-add"><span class="pa">＋</span>사진 추가<input type="file" id="photoInput" accept="image/*" multiple hidden></label>
+        </div>
+      </div>
+
+      <button class="submit" id="submitBtn">기록 저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- DETAIL SHEET -->
+<div class="overlay" id="detailOverlay">
+  <div class="sheet">
+    <div class="grab"></div>
+    <div class="sheet-head"><h2>기록 상세</h2><button class="x" id="detailClose">✕</button></div>
+    <div class="sheet-body" id="detailBody"></div>
+  </div>
+</div>
+
+<div class="lightbox" id="lightbox"><img id="lightboxImg" src="" alt=""></div>
+<div class="toast" id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+/* ============================================================
+   CONFIG  — 배포 후 GAS_URL 만 채우면 됩니다.
+   ============================================================ */
+const CONFIG = {
+  SHEET_ID: '1zMLPu0qW3SPSMnSwnz4cdsXCenDTAs71MA8dsgEAMrA',
+  SHEET_NAME: 'records',
+  DRIVE_FOLDER_ID: '1g0lWU2K9P6eXA0Gkk7Yr-EbpSrsZpaDv',
+  // ↓↓↓ Apps Script 웹앱 배포 후 받은 /exec URL 을 붙여넣으세요 ↓↓↓
+  GAS_URL: 'https://script.google.com/macros/s/AKfycbx47nt8u5kx4ktAG3K6kcyDd8kdF0tK-7XviI2wOvR7hHoFBgxTkO9LOsv-ZwA9Z0r3Nw/exec',
+  // (선택) '웹에 게시'한 CSV URL 을 넣으면 가장 안정적으로 읽힙니다. 비워두면 gviz 방식 사용.
+  CSV_URL_OVERRIDE: 'https://docs.google.com/spreadsheets/d/e/2PACX-1vScWoC2ZqpjSFYu0WcJ3lu116q_WhWCpaO6-xy_Q7pj5lTQs-6gw-M9biusvtgKQplXRrmWcaCUKhNb/pub?output=csv'
+};
+const READ_URL = CONFIG.CSV_URL_OVERRIDE ||
+  `https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(CONFIG.SHEET_NAME)}`;
+const CACHE_KEY = 'fieldlog_cache_v1';
+const COLS = ['id','type','date','title','lat','lng','place','rating','memo','photo','weather','companions','price','campType','stay','revisit','startTime','endTime','species','fishCount','toilet','tide','bait','createdAt'];
+
+/* ============================================================ state */
+const state = { records: [], listFilter:'all', mapFilter:'all', calDate:new Date(),
+  form:{ type:'camping', rating:0, weather:'', campType:'', revisit:'', tide:'', photos:[], existing:[], editId:null, lat:null, lng:null } };
+let map, pickMap, pickMarker, markers=[];
+
+/* ============================================================ utils */
+const $ = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+const esc = s => (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),2600); }
+function uid(){ return 'r'+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+function starHTML(n){ n=parseInt(n)||0; let h=''; for(let i=1;i<=5;i++) h+=`<span class="${i<=n?'':'off'}">★</span>`; return `<span class="stars">${h}</span>`; }
+function fmtDate(d){ if(!d) return ''; const p=String(d).split('-'); return p.length===3?`${p[0]}.${p[1]}.${p[2]}`:d; }
+function photosOf(r){ return (r.photos && r.photos.length) ? r.photos : (r.photo? String(r.photo).split(',').map(s=>s.trim()).filter(Boolean):[]); }
+
+/* CSV parser (handles quotes, commas, newlines) */
+function parseCSV(text){
+  const rows=[]; let row=[], cur='', q=false;
+  for(let i=0;i<text.length;i++){ const c=text[i];
+    if(q){ if(c==='"'){ if(text[i+1]==='"'){cur+='"';i++;} else q=false; } else cur+=c; }
+    else { if(c==='"') q=true; else if(c===',') {row.push(cur);cur='';}
+      else if(c==='\n'){ row.push(cur); rows.push(row); row=[]; cur=''; }
+      else if(c==='\r'){} else cur+=c; } }
+  if(cur!==''||row.length){ row.push(cur); rows.push(row); }
+  return rows;
+}
+
+/* ============================================================ data load */
+async function loadData(){
+  // cache first
+  try{ const c=localStorage.getItem(CACHE_KEY); if(c){ state.records=JSON.parse(c); renderAll(); } }catch(e){}
+  if(!CONFIG.GAS_URL) $('#cfgBanner').classList.remove('hidden'), $('#cfgBanner').innerHTML='<b>설정 필요:</b> Apps Script 웹앱을 배포하고 <b>index.html</b>의 <b>GAS_URL</b>에 붙여넣으면 저장이 활성화됩니다. (읽기는 시트 공유만으로 동작)';
+  try{
+    const res = await fetch(READ_URL, {redirect:'follow'});
+    const txt = await res.text();
+    if(txt.trim().startsWith('<')) throw new Error('HTML returned (시트 공유/게시 필요)');
+    const rows = parseCSV(txt).filter(r=>r.length>1 && r.some(c=>c!==''));
+    if(!rows.length){ state.records=[]; renderAll(); return; }
+    const head = rows.shift().map(h=>h.trim());
+    const recs = rows.map(r=>{ const o={}; head.forEach((h,i)=>o[h]=(r[i]||'').trim()); o.photos=photosOf(o); return o; })
+                     .filter(o=>o.id);
+    recs.sort((a,b)=> (b.date||'').localeCompare(a.date||'') || (b.createdAt||'').localeCompare(a.createdAt||''));
+    state.records = recs;
+    try{ localStorage.setItem(CACHE_KEY, JSON.stringify(recs)); }catch(e){}
+    renderAll();
+  }catch(err){ console.warn('read failed', err); if(!state.records.length){ renderAll(); } toast('데이터를 불러오지 못했습니다 · 캐시 표시'); }
+}
+
+/* ============================================================ render */
+function renderAll(){ renderStats(); renderList(); renderMap(); renderCalendar(); }
+
+function renderStats(){
+  $('#stTotal').textContent = state.records.length;
+  $('#stCamp').textContent = state.records.filter(r=>r.type==='camping').length;
+  $('#stFish').textContent = state.records.filter(r=>r.type==='fishing').length;
+}
+
+function renderList(){
+  const f = state.listFilter;
+  const list = state.records.filter(r=> f==='all'||r.type===f);
+  const el = $('#listView');
+  if(!list.length){ el.innerHTML = `<div class="empty-state"><div class="ico">🏕️</div><div class="t">아직 기록이 없어요</div><div style="margin-top:6px;font-size:13px">아래 + 버튼으로 첫 기록을 남겨보세요</div></div>`; return; }
+  el.innerHTML = list.map(r=>{
+    const ph = photosOf(r)[0];
+    const isCamp = r.type==='camping';
+    const meta = isCamp
+      ? [ r.price?`💰 ${Number(r.price).toLocaleString()}원`:'', r.stay?`🛏️ ${r.stay}`:'', r.campType||'' ]
+      : [ (r.startTime&&r.endTime)?`⏱️ ${r.startTime}~${r.endTime}`:'', r.species?`🐟 ${esc(r.species)}`:'', r.toilet?`🚻 ${r.toilet==='Y'?'있음':'없음'}`:'' ];
+    return `<div class="card" data-id="${r.id}">
+      ${ph?`<img class="thumb" src="${esc(ph)}" loading="lazy" alt="">`:`<div class="thumb empty">${isCamp?'⛺':'🎣'}</div>`}
+      <div class="body">
+        ${r._syncing?'<div class="syncing">저장 중…</div>':''}
+        <div class="top"><span class="badge ${r.type}">${isCamp?'⛺ 캠핑':'🎣 낚시'}</span><span class="date">${fmtDate(r.date)}</span></div>
+        <div class="title">${esc(r.title)||'(제목 없음)'}</div>
+        ${r.place?`<div class="place">📍 ${esc(r.place)}</div>`:''}
+        <div class="meta">${starHTML(r.rating)} ${meta.filter(Boolean).map(m=>`<span>${m}</span>`).join('')}</div>
+      </div></div>`;
+  }).join('');
+  $$('#listView .card').forEach(c=>c.onclick=()=>openDetail(c.dataset.id));
+}
+
+/* ---- Map ---- */
+function pinIcon(type){ return L.divIcon({ className:'', html:`<div class="pin ${type}"><span>${type==='camping'?'⛺':'🎣'}</span></div>`, iconSize:[34,34], iconAnchor:[17,34], popupAnchor:[0,-32] }); }
+function renderMap(){
+  if(!map) return;
+  markers.forEach(m=>map.removeLayer(m)); markers=[];
+  const f=state.mapFilter;
+  const pts = state.records.filter(r=> (f==='all'||r.type===f) && r.lat && r.lng && !isNaN(+r.lat) && !isNaN(+r.lng));
+  pts.forEach(r=>{
+    const m=L.marker([+r.lat,+r.lng],{icon:pinIcon(r.type)}).addTo(map);
+    const ph=photosOf(r)[0];
+    m.bindPopup(`<div class="popup">${ph?`<img src="${esc(ph)}">`:''}<div class="pt">${esc(r.title)||'(제목 없음)'}</div><div class="pd">${r.type==='camping'?'⛺ 캠핑':'🎣 낚시'} · ${fmtDate(r.date)}</div><button onclick="openDetail('${r.id}')">자세히 보기</button></div>`);
+    markers.push(m);
+  });
+  if(pts.length){ const g=L.featureGroup(markers); try{ map.fitBounds(g.getBounds().pad(0.3),{maxZoom:13}); }catch(e){} }
+}
+
+/* ---- Calendar ---- */
+function renderCalendar(){
+  const d=state.calDate, y=d.getFullYear(), mo=d.getMonth();
+  $('#calTitle').textContent = `${y}.${String(mo+1).padStart(2,'0')}`;
+  const first=new Date(y,mo,1).getDay(), days=new Date(y,mo+1,0).getDate();
+  const today=new Date(); const todStr=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  const byDate={};
+  state.records.forEach(r=>{ if(!r.date) return; (byDate[r.date]=byDate[r.date]||[]).push(r); });
+  let html='';
+  for(let i=0;i<first;i++) html+='<div class="cell empty"></div>';
+  for(let dn=1;dn<=days;dn++){
+    const ds=`${y}-${String(mo+1).padStart(2,'0')}-${String(dn).padStart(2,'0')}`;
+    const recs=byDate[ds]||[]; const has=recs.length>0;
+    const ph = has? photosOf(recs[0])[0] : '';
+    const types=[...new Set(recs.map(r=>r.type))];
+    html+=`<div class="cell ${has?'has':''} ${ds===todStr?'today':''}" data-d="${ds}">
+      ${ph?`<div class="thumbbg" style="background-image:url('${esc(ph)}')"></div>`:''}
+      <div class="dn">${dn}</div>
+      ${recs.length>1?`<div class="cnt">${recs.length}</div>`:''}
+      ${has?`<div class="dots">${types.map(t=>`<span class="dot ${t}"></span>`).join('')}</div>`:''}
+    </div>`;
+  }
+  $('#calGrid').innerHTML=html;
+  $$('#calGrid .cell.has').forEach(c=>c.onclick=()=>{ const recs=byDate[c.dataset.d]; if(recs.length===1) openDetail(recs[0].id); else openDayList(c.dataset.d, recs); });
+}
+function openDayList(ds, recs){
+  $('#detailBody').innerHTML = `<div class="dtitle">${fmtDate(ds)}</div><div class="dsub">${recs.length}개의 기록</div>`+
+    recs.map(r=>{ const ph=photosOf(r)[0];
+      return `<div class="card" data-id="${r.id}" style="margin-bottom:10px">${ph?`<img class="thumb" src="${esc(ph)}">`:`<div class="thumb empty">${r.type==='camping'?'⛺':'🎣'}</div>`}<div class="body"><div class="top"><span class="badge ${r.type}">${r.type==='camping'?'⛺ 캠핑':'🎣 낚시'}</span></div><div class="title">${esc(r.title)||'(제목 없음)'}</div><div class="meta">${starHTML(r.rating)}</div></div></div>`;
+    }).join('');
+  $$('#detailBody .card').forEach(c=>c.onclick=()=>openDetail(c.dataset.id));
+  $('#detailOverlay').classList.add('open');
+}
+
+/* ============================================================ detail */
+function openDetail(id){
+  const r = state.records.find(x=>x.id===id); if(!r) return;
+  const phs = photosOf(r);
+  const isCamp=r.type==='camping';
+  const rows=[];
+  const add=(k,v)=>{ if(v!==undefined&&v!==null&&v!=='') rows.push(`<div class="drow"><div class="k">${k}</div><div class="v">${v}</div></div>`); };
+  add('평가', starHTML(r.rating));
+  add('위치', r.place?esc(r.place):'');
+  add('날씨', r.weather?esc(r.weather):'');
+  add('동행', r.companions?esc(r.companions):'');
+  if(isCamp){
+    add('비용', r.price?Number(r.price).toLocaleString()+'원':'');
+    add('숙박', r.stay); add('유형', r.campType);
+    add('재방문', r.revisit==='Y'?'👍 또 가고 싶다':r.revisit==='N'?'👎 글쎄':'');
+  }else{
+    add('낚시 시간', (r.startTime&&r.endTime)?`${r.startTime} ~ ${r.endTime}`:'');
+    add('어종', r.species?esc(r.species):''); add('마릿수', r.fishCount?r.fishCount+'마리':'');
+    add('화장실', r.toilet==='Y'?'있음':r.toilet==='N'?'없음':''); add('물때', r.tide);
+    add('미끼/채비', r.bait?esc(r.bait):'');
+  }
+  add('메모', r.memo?esc(r.memo).replace(/\n/g,'<br>'):'');
+  $('#detailBody').innerHTML = `
+    ${phs.length?`<div class="detail-photos ${phs.length===1?'single':''}">${phs.map(p=>`<img src="${esc(p)}" onclick="openLightbox('${esc(p)}')">`).join('')}</div>`:''}
+    <span class="badge ${r.type}">${isCamp?'⛺ 캠핑':'🎣 낚시'}</span>
+    <div class="dtitle" style="margin-top:8px">${esc(r.title)||'(제목 없음)'}</div>
+    <div class="dsub">📅 ${fmtDate(r.date)}${r.lat&&r.lng?` · <a href="https://www.google.com/maps/search/?api=1&query=${r.lat},${r.lng}" target="_blank" style="color:var(--primary)">지도에서 열기 ↗</a>`:''}</div>
+    ${rows.join('')}
+    <div class="detail-actions">
+      <button class="btn-edit" onclick="editRecord('${r.id}')">✏️ 수정</button>
+      <button class="btn-del" onclick="deleteRecord('${r.id}')">🗑️ 삭제</button>
+    </div>`;
+  $('#detailOverlay').classList.add('open');
+}
+function openLightbox(src){ $('#lightboxImg').src=src; $('#lightbox').classList.add('open'); }
+$('#lightbox').onclick=()=>$('#lightbox').classList.remove('open');
+
+/* ============================================================ form */
+function setType(t){
+  state.form.type=t;
+  $('#tBtnCamp').classList.toggle('on', t==='camping');
+  $('#tBtnFish').classList.toggle('on', t==='fishing');
+  $('#campFields').classList.toggle('hidden', t!=='camping');
+  $('#fishFields').classList.toggle('hidden', t!=='fishing');
+}
+function setStars(n){ state.form.rating=n; $$('#fStars span').forEach(s=>s.classList.toggle('on', +s.dataset.v<=n)); }
+function bindQchips(sel, key){ $$(sel+' .qchip').forEach(b=>b.onclick=()=>{ const on=!b.classList.contains('on'); $$(sel+' .qchip').forEach(x=>x.classList.remove('on')); if(on){b.classList.add('on'); state.form[key]=b.dataset.v;} else state.form[key]=''; }); }
+
+function resetForm(){
+  state.form={ type:'camping', rating:0, weather:'', campType:'', revisit:'', tide:'', photos:[], existing:[], editId:null, lat:null, lng:null };
+  ['fTitle','fPlace','fComp','fPrice','fSpecies','fCount','fBait','fMemo','fStart','fEnd'].forEach(id=>$('#'+id).value='');
+  $('#fStay').value=''; $('#fToilet').value='';
+  $('#fDate').value = new Date().toISOString().slice(0,10);
+  setStars(0); setType('camping');
+  $$('.qchip').forEach(x=>x.classList.remove('on'));
+  renderPhotoGrid();
+  $('#formTitle').textContent='새 기록';
+}
+function openForm(){ resetForm(); $('#formOverlay').classList.add('open'); setTimeout(initPickMap, 250); }
+function closeForm(){ $('#formOverlay').classList.remove('open'); }
+
+/* photos */
+function renderPhotoGrid(){
+  const grid=$('#photoGrid');
+  grid.querySelectorAll('.photo-wrap').forEach(e=>e.remove());
+  const all=[...state.form.existing.map(u=>({u,kind:'ex'})), ...state.form.photos.map(u=>({u,kind:'new'}))];
+  all.forEach((p,idx)=>{
+    const w=document.createElement('div'); w.className='photo-wrap';
+    w.innerHTML=`<img class="photo-thumb" src="${p.u}"><div class="rm">✕</div>`;
+    w.querySelector('.rm').onclick=()=>{ if(p.kind==='ex') state.form.existing=state.form.existing.filter(x=>x!==p.u); else state.form.photos=state.form.photos.filter(x=>x!==p.u); renderPhotoGrid(); };
+    grid.insertBefore(w, grid.firstChild);
+  });
+}
+function compressImage(file){
+  return new Promise((resolve,reject)=>{
+    const img=new Image(), reader=new FileReader();
+    reader.onload=()=>img.src=reader.result; reader.onerror=reject;
+    img.onload=()=>{ let{width:w,height:h}=img, M=1280;
+      if(w>h&&w>M){h=Math.round(h*M/w);w=M;} else if(h>=w&&h>M){w=Math.round(w*M/h);h=M;}
+      const c=document.createElement('canvas'); c.width=w; c.height=h; c.getContext('2d').drawImage(img,0,0,w,h);
+      resolve(c.toDataURL('image/jpeg',0.82)); };
+    img.onerror=reject; reader.readAsDataURL(file);
+  });
+}
+$('#photoInput').onchange=async e=>{
+  const files=[...e.target.files]; e.target.value='';
+  for(const f of files){ if(state.form.existing.length+state.form.photos.length>=6){ toast('사진은 최대 6장'); break; } try{ state.form.photos.push(await compressImage(f)); }catch(err){} }
+  renderPhotoGrid();
+};
+
+/* location pick map */
+function initPickMap(){
+  const c=state.form.lat? [state.form.lat,state.form.lng] : [37.5665,126.9780];
+  if(!pickMap){
+    pickMap=L.map('pickmap',{zoomControl:true,attributionControl:false}).setView(c, state.form.lat?13:11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(pickMap);
+    pickMap.on('click', e=> setPick(e.latlng.lat, e.latlng.lng, true));
+  } else { pickMap.setView(c, state.form.lat?13:11); setTimeout(()=>pickMap.invalidateSize(),100); }
+  if(state.form.lat) setPick(state.form.lat, state.form.lng, false); else if(pickMarker){pickMap.removeLayer(pickMarker);pickMarker=null;}
+  setTimeout(()=>pickMap.invalidateSize(),200);
+}
+function setPick(lat,lng,reverse){
+  state.form.lat=+lat.toFixed(6); state.form.lng=+lng.toFixed(6);
+  if(!pickMarker){ pickMarker=L.marker([lat,lng],{draggable:true,icon:pinIcon(state.form.type)}).addTo(pickMap);
+    pickMarker.on('dragend',()=>{ const p=pickMarker.getLatLng(); setPick(p.lat,p.lng,true); }); }
+  else pickMarker.setLatLng([lat,lng]);
+  if(reverse) reverseGeocode(lat,lng);
+}
+async function reverseGeocode(lat,lng){
+  try{ const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=ko&zoom=16`);
+    const j=await r.json(); if(j && j.display_name && !$('#fPlace').value.trim()){ const a=j.address||{};
+      const parts=[a.city||a.county||a.province, a.borough||a.suburb||a.town||a.village, a.neighbourhood||a.road].filter(Boolean);
+      $('#fPlace').value = parts.length? parts.join(' ') : j.display_name.split(',').slice(0,3).join(' ').trim(); }
+  }catch(e){}
+}
+$('#gpsBtn').onclick=()=>{
+  if(!navigator.geolocation){ toast('위치를 지원하지 않는 기기'); return; }
+  $('#gpsBtn').innerHTML='<span class="spinner"></span> 가져오는 중…';
+  navigator.geolocation.getCurrentPosition(p=>{ const{latitude,longitude}=p.coords; if(!pickMap) initPickMap(); pickMap.setView([latitude,longitude],15); setPick(latitude,longitude,true); $('#gpsBtn').textContent='📍 현재 위치'; toast('현재 위치를 가져왔습니다'); },
+    err=>{ $('#gpsBtn').textContent='📍 현재 위치'; toast('위치 권한을 확인해주세요'); }, {enableHighAccuracy:true,timeout:10000});
+};
+
+/* collect + submit */
+function collectRecord(){
+  const t=state.form.type;
+  const rec={ id: state.form.editId||uid(), type:t,
+    date:$('#fDate').value, title:$('#fTitle').value.trim(),
+    lat:state.form.lat??'', lng:state.form.lng??'', place:$('#fPlace').value.trim(),
+    rating:state.form.rating||'', memo:$('#fMemo').value.trim(),
+    weather:state.form.weather, companions:$('#fComp').value.trim(),
+    price:'',campType:'',stay:'',revisit:'',startTime:'',endTime:'',species:'',fishCount:'',toilet:'',tide:'',bait:'',
+    createdAt: new Date().toISOString() };
+  if(t==='camping'){ rec.price=$('#fPrice').value.trim(); rec.campType=state.form.campType; rec.stay=$('#fStay').value; rec.revisit=state.form.revisit; }
+  else { rec.startTime=$('#fStart').value; rec.endTime=$('#fEnd').value; rec.species=$('#fSpecies').value.trim();
+    rec.fishCount=$('#fCount').value.trim(); rec.toilet=$('#fToilet').value; rec.tide=state.form.tide; rec.bait=$('#fBait').value.trim(); }
+  return rec;
+}
+$('#submitBtn').onclick=async()=>{
+  const rec=collectRecord();
+  if(!rec.title){ toast('제목을 입력해주세요'); return; }
+  if(!rec.date){ toast('방문일을 선택해주세요'); return; }
+  const btn=$('#submitBtn'); btn.disabled=true; const isEdit=!!state.form.editId;
+  btn.innerHTML='<span class="spinner"></span> 저장 중…';
+
+  // optimistic local record (local data-URL previews live only in memory)
+  const local={...rec, photos:[...state.form.existing, ...state.form.photos], _syncing:true};
+  if(isEdit){ const i=state.records.findIndex(x=>x.id===rec.id); if(i>=0) state.records[i]=local; }
+  else state.records.unshift(local);
+  state.records.sort((a,b)=>(b.date||'').localeCompare(a.date||'')||(b.createdAt||'').localeCompare(a.createdAt||''));
+  renderAll(); closeForm();
+
+  if(!CONFIG.GAS_URL){ btn.disabled=false; btn.textContent='기록 저장'; toast('GAS_URL 미설정 · 임시로 화면에만 표시됩니다'); return; }
+  try{
+    await fetch(CONFIG.GAS_URL,{ method:'POST', mode:'no-cors', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({ action:isEdit?'update':'add', id:rec.id, record:rec,
+        existingPhotos:state.form.existing, photos:state.form.photos,
+        folderId:CONFIG.DRIVE_FOLDER_ID, sheetName:CONFIG.SHEET_NAME }) });
+    toast(isEdit?'수정되었습니다':'기록이 저장되었습니다');
+    setTimeout(loadData, 3500);
+  }catch(err){ toast('저장 요청 실패 · 네트워크 확인'); }
+  btn.disabled=false; btn.textContent='기록 저장';
+};
+
+function editRecord(id){
+  const r=state.records.find(x=>x.id===id); if(!r) return;
+  $('#detailOverlay').classList.remove('open');
+  resetForm();
+  state.form.editId=r.id; $('#formTitle').textContent='기록 수정';
+  setType(r.type);
+  $('#fTitle').value=r.title||''; $('#fDate').value=r.date||''; $('#fPlace').value=r.place||'';
+  $('#fComp').value=r.companions||''; $('#fMemo').value=r.memo||'';
+  setStars(parseInt(r.rating)||0);
+  if(r.weather){ state.form.weather=r.weather; $$('#fWeather .qchip').forEach(b=>b.classList.toggle('on',b.dataset.v===r.weather)); }
+  if(r.lat&&r.lng){ state.form.lat=+r.lat; state.form.lng=+r.lng; }
+  if(r.type==='camping'){ $('#fPrice').value=r.price||''; $('#fStay').value=r.stay||'';
+    if(r.campType){state.form.campType=r.campType; $$('#fCampType .qchip').forEach(b=>b.classList.toggle('on',b.dataset.v===r.campType));}
+    if(r.revisit){state.form.revisit=r.revisit; $$('#fRevisit .qchip').forEach(b=>b.classList.toggle('on',b.dataset.v===r.revisit));}
+  } else { $('#fStart').value=r.startTime||''; $('#fEnd').value=r.endTime||''; $('#fSpecies').value=r.species||'';
+    $('#fCount').value=r.fishCount||''; $('#fToilet').value=r.toilet||'';
+    if(r.tide){state.form.tide=r.tide; $$('#fTide .qchip').forEach(b=>b.classList.toggle('on',b.dataset.v===r.tide));}
+    $('#fBait').value=r.bait||''; }
+  state.form.existing=photosOf(r); state.form.photos=[];
+  renderPhotoGrid();
+  $('#formOverlay').classList.add('open'); setTimeout(initPickMap,250);
+}
+async function deleteRecord(id){
+  if(!confirm('이 기록을 삭제할까요? 되돌릴 수 없습니다.')) return;
+  state.records=state.records.filter(x=>x.id!==id);
+  try{ localStorage.setItem(CACHE_KEY, JSON.stringify(state.records)); }catch(e){}
+  renderAll(); $('#detailOverlay').classList.remove('open');
+  if(CONFIG.GAS_URL){ try{ await fetch(CONFIG.GAS_URL,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'delete',id})}); toast('삭제되었습니다'); setTimeout(loadData,3000);}catch(e){} }
+  else toast('삭제됨 (화면)');
+}
+
+/* ============================================================ nav & events */
+function switchTab(tab){
+  $$('nav button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
+  $$('.panel').forEach(p=>p.classList.toggle('active', p.id==='tab-'+tab));
+  if(tab==='map'){ if(!map){ map=L.map('map',{zoomControl:true}).setView([36.5,127.8],7); L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map); } setTimeout(()=>{map.invalidateSize(); renderMap();},150); }
+}
+$$('nav button').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));
+$$('#listFilter .chip').forEach(c=>c.onclick=()=>{ $$('#listFilter .chip').forEach(x=>x.classList.remove('active')); c.classList.add('active'); state.listFilter=c.dataset.f; renderList(); });
+$$('#mapFilter .chip').forEach(c=>c.onclick=()=>{ $$('#mapFilter .chip').forEach(x=>x.classList.remove('active')); c.classList.add('active'); state.mapFilter=c.dataset.f; renderMap(); });
+$('#calPrev').onclick=()=>{ state.calDate.setMonth(state.calDate.getMonth()-1); renderCalendar(); };
+$('#calNext').onclick=()=>{ state.calDate.setMonth(state.calDate.getMonth()+1); renderCalendar(); };
+$('#fab').onclick=openForm;
+$('#formClose').onclick=closeForm;
+$('#detailClose').onclick=()=>$('#detailOverlay').classList.remove('open');
+$('#formOverlay').onclick=e=>{ if(e.target===$('#formOverlay')) closeForm(); };
+$('#detailOverlay').onclick=e=>{ if(e.target===$('#detailOverlay')) $('#detailOverlay').classList.remove('open'); };
+$('#tBtnCamp').onclick=()=>{ setType('camping'); if(pickMarker) pickMarker.setIcon(pinIcon('camping')); };
+$('#tBtnFish').onclick=()=>{ setType('fishing'); if(pickMarker) pickMarker.setIcon(pinIcon('fishing')); };
+$$('#fStars span').forEach(s=>s.onclick=()=>setStars(+s.dataset.v));
+bindQchips('#fWeather','weather'); bindQchips('#fCampType','campType'); bindQchips('#fRevisit','revisit'); bindQchips('#fTide','tide');
+
+/* ============================================================ init */
+loadData();
+if('serviceWorker' in navigator){ window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{})); }
+</script>
+</body>
+</html>
