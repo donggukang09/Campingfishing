@@ -486,7 +486,7 @@ function mergeRecords(){
   state.remote.forEach(r=>{ if(!tombIds.has(r.id)) byId.set(r.id, {...r}); });
   state.pending.forEach(p=>{
     if(tombIds.has(p.rec.id)) return;
-    byId.set(p.rec.id, {...p.rec, _syncing:true});
+    byId.set(p.rec.id, {...p.rec, _syncing: !p.sent});  // 서버 전송 완료(sent)면 배지 제거
   });
   const arr=[...byId.values()];
   arr.forEach(r=>{ if(!r.photos) r.photos=photosOf(r); });
@@ -832,6 +832,7 @@ $('#submitBtn').onclick=async()=>{
 
   if(!CONFIG.GAS_URL){ toast('GAS_URL 미설정 · 화면에만 표시됩니다'); return; }
   await flushQueue();
+  mergeRecords(); renderAll();   // 전송 결과(sent) 반영 → 배지 즉시 갱신
   toast(entry.sent ? (isEdit?'수정되었습니다':'기록이 저장되었습니다') : '오프라인 · 연결되면 자동 저장됩니다');
   setTimeout(loadData, 4000);
   setTimeout(loadData, 20000);
