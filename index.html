@@ -440,13 +440,20 @@ const CONFIG = {
 };
 const READ_URL = CONFIG.CSV_URL_OVERRIDE ||
   `https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(CONFIG.SHEET_NAME)}`;
-const CACHE_KEY = 'fieldlog_cache_v1';
+const CACHE_KEY   = 'fieldlog_cache_v1';   // 시트에서 읽어온 확정 기록
+const PENDING_KEY = 'fieldlog_pending_v1'; // 저장/수정 대기 (시트 확인 전까지 유지)
+const TOMB_KEY    = 'fieldlog_tomb_v1';    // 삭제 표시 (스테일 CSV가 되살리지 못하게)
+const OVERLAY_TTL = 8*60*1000;             // 수정 오버레이 유지 시간 (게시 CSV 캐시 대비)
 const COLS = ['id','type','date','title','lat','lng','place','rating','memo','photo','weather','companions','price','campType','stay','revisit','startTime','endTime','species','fishCount','toilet','tide','bait','createdAt'];
 
 /* ============================================================ state */
-const state = { records: [], listFilter:'all', mapFilter:'all', calDate:new Date(),
+const state = { records: [], remote: [], pending: [], tomb: [], listFilter:'all', mapFilter:'all', calDate:new Date(),
   form:{ type:'camping', rating:0, weather:'', campType:'', revisit:'', tide:'', photos:[], existing:[], editId:null, lat:null, lng:null } };
 let map, pickMap, pickMarker, markers=[];
+
+/* localStorage helpers */
+function readLS(k,def){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):def; }catch(e){ return def; } }
+function writeLS(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); return true; }catch(e){ return false; } }
 
 /* ============================================================ utils */
 const $ = s => document.querySelector(s);
@@ -470,25 +477,89 @@ function parseCSV(text){
   return rows;
 }
 
-/* ============================================================ data load */
+/* ============================================================ data load + sync */
+
+/* 확정 기록(remote) + 대기열(pending) + 삭제표시(tomb) 를 합쳐 화면용 records 생성 */
+function mergeRecords(){
+  const tombIds = new Set(state.tomb.map(t=>t.id));
+  const byId = new Map();
+  state.remote.forEach(r=>{ if(!tombIds.has(r.id)) byId.set(r.id, {...r}); });
+  state.pending.forEach(p=>{
+    if(tombIds.has(p.rec.id)) return;
+    byId.set(p.rec.id, {...p.rec, _syncing:true});
+  });
+  const arr=[...byId.values()];
+  arr.forEach(r=>{ if(!r.photos) r.photos=photosOf(r); });
+  arr.sort((a,b)=> (b.date||'').localeCompare(a.date||'') || (b.createdAt||'').localeCompare(a.createdAt||''));
+  state.records = arr;
+}
+
+/* 시트(remote)와 비교해 확인된 대기열/삭제표시 정리 */
+function reconcile(){
+  const remoteIds = new Set(state.remote.map(r=>r.id));
+  const now = Date.now();
+  state.pending = state.pending.filter(p=>{
+    if(p.action==='add')    return !remoteIds.has(p.rec.id);          // 시트에 나타나면 확정 → 제거
+    if(p.action==='update') return (now - p.ts) < OVERLAY_TTL;        // 캐시 반영 시간 동안 유지
+    return false;
+  });
+  state.tomb = state.tomb.filter(t=> remoteIds.has(t.id));            // 시트에서 사라지면 삭제 확정 → 제거
+  writeLS(PENDING_KEY, state.pending); writeLS(TOMB_KEY, state.tomb);
+}
+
+/* 보내지 않은 대기열/삭제 재전송 (오프라인 → 재접속 시 자동 동기화) */
+async function flushQueue(){
+  if(!CONFIG.GAS_URL) return;
+  for(const p of state.pending){
+    if(p.sent) continue;
+    try{
+      const photos = (p.rec.photos||[]).filter(u=>String(u).startsWith('data:'));
+      const existing = (p.rec.photos||[]).filter(u=>!String(u).startsWith('data:'));
+      const rec = {...p.rec}; delete rec.photos; delete rec._syncing;
+      await fetch(CONFIG.GAS_URL,{ method:'POST', mode:'no-cors', headers:{'Content-Type':'text/plain;charset=utf-8'},
+        body: JSON.stringify({ action:p.action, id:p.rec.id, record:rec, existingPhotos:existing, photos:photos,
+          folderId:CONFIG.DRIVE_FOLDER_ID, sheetName:CONFIG.SHEET_NAME }) });
+      p.sent = true;
+    }catch(e){ /* 아직 오프라인 — 다음 기회에 재전송 */ }
+  }
+  for(const t of state.tomb){
+    if(t.sent) continue;
+    try{ await fetch(CONFIG.GAS_URL,{ method:'POST', mode:'no-cors', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify({action:'delete', id:t.id}) }); t.sent=true; }catch(e){}
+  }
+  writeLS(PENDING_KEY, state.pending); writeLS(TOMB_KEY, state.tomb);
+}
+
 async function loadData(){
-  // cache first
-  try{ const c=localStorage.getItem(CACHE_KEY); if(c){ state.records=JSON.parse(c); renderAll(); } }catch(e){}
-  if(!CONFIG.GAS_URL) $('#cfgBanner').classList.remove('hidden'), $('#cfgBanner').innerHTML='<b>설정 필요:</b> Apps Script 웹앱을 배포하고 <b>index.html</b>의 <b>GAS_URL</b>에 붙여넣으면 저장이 활성화됩니다. (읽기는 시트 공유만으로 동작)';
+  // 1) 로컬 저장본 먼저 표시 (즉시)
+  state.remote  = readLS(CACHE_KEY, []);
+  state.pending = readLS(PENDING_KEY, []);
+  state.tomb    = readLS(TOMB_KEY, []);
+  mergeRecords(); renderAll();
+
+  if(!CONFIG.GAS_URL){ $('#cfgBanner').classList.remove('hidden'); $('#cfgBanner').innerHTML='<b>설정 필요:</b> Apps Script 웹앱을 배포하고 <b>index.html</b>의 <b>GAS_URL</b>에 붙여넣으면 저장이 활성화됩니다.'; }
+
+  // 2) 못 보낸 대기열 재전송 (오프라인 복귀 대비)
+  flushQueue();
+
+  // 3) 시트에서 최신 읽기 → 확정 기록 갱신
   try{
-    const res = await fetch(READ_URL, {redirect:'follow'});
+    const bust = (CONFIG.CSV_URL_OVERRIDE? '&' : '&') + '_=' + Date.now();
+    const res = await fetch(READ_URL + bust, {redirect:'follow', cache:'no-store'});
     const txt = await res.text();
     if(txt.trim().startsWith('<')) throw new Error('HTML returned (시트 공유/게시 필요)');
     const rows = parseCSV(txt).filter(r=>r.length>1 && r.some(c=>c!==''));
-    if(!rows.length){ state.records=[]; renderAll(); return; }
-    const head = rows.shift().map(h=>h.trim());
+    const head = rows.length? rows.shift().map(h=>h.trim()) : [];
     const recs = rows.map(r=>{ const o={}; head.forEach((h,i)=>o[h]=(r[i]||'').trim()); o.photos=photosOf(o); return o; })
                      .filter(o=>o.id);
-    recs.sort((a,b)=> (b.date||'').localeCompare(a.date||'') || (b.createdAt||'').localeCompare(a.createdAt||''));
-    state.records = recs;
-    try{ localStorage.setItem(CACHE_KEY, JSON.stringify(recs)); }catch(e){}
-    renderAll();
-  }catch(err){ console.warn('read failed', err); if(!state.records.length){ renderAll(); } toast('데이터를 불러오지 못했습니다 · 캐시 표시'); }
+    state.remote = recs;
+    writeLS(CACHE_KEY, recs);
+    reconcile();
+    mergeRecords(); renderAll();
+  }catch(err){
+    console.warn('read failed', err);
+    mergeRecords(); renderAll();
+    if(!state.records.length) toast('데이터를 불러오지 못했습니다 · 시트 공유/게시 확인');
+  }
 }
 
 /* ============================================================ render */
@@ -744,23 +815,26 @@ $('#submitBtn').onclick=async()=>{
   const btn=$('#submitBtn'); btn.disabled=true; const isEdit=!!state.form.editId;
   btn.innerHTML='<span class="spinner"></span> 저장 중…';
 
-  // optimistic local record (local data-URL previews live only in memory)
-  const local={...rec, photos:[...state.form.existing, ...state.form.photos], _syncing:true};
-  if(isEdit){ const i=state.records.findIndex(x=>x.id===rec.id); if(i>=0) state.records[i]=local; }
-  else state.records.unshift(local);
-  state.records.sort((a,b)=>(b.date||'').localeCompare(a.date||'')||(b.createdAt||'').localeCompare(a.createdAt||''));
-  renderAll(); closeForm();
+  // 표시용 사진: 기존 원격 URL + 새 로컬 사진(data url)
+  const photos=[...state.form.existing, ...state.form.photos];
+  const entry={ rec:{...rec, photos}, action:isEdit?'update':'add', ts:Date.now(), sent:false };
 
-  if(!CONFIG.GAS_URL){ btn.disabled=false; btn.textContent='기록 저장'; toast('GAS_URL 미설정 · 임시로 화면에만 표시됩니다'); return; }
-  try{
-    await fetch(CONFIG.GAS_URL,{ method:'POST', mode:'no-cors', headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({ action:isEdit?'update':'add', id:rec.id, record:rec,
-        existingPhotos:state.form.existing, photos:state.form.photos,
-        folderId:CONFIG.DRIVE_FOLDER_ID, sheetName:CONFIG.SHEET_NAME }) });
-    toast(isEdit?'수정되었습니다':'기록이 저장되었습니다');
-    setTimeout(loadData, 3500);
-  }catch(err){ toast('저장 요청 실패 · 네트워크 확인'); }
+  // 대기열에 영구 보존 (시트 확인 전까지 사라지지 않음)
+  state.pending = state.pending.filter(p=>p.rec.id!==rec.id);
+  state.pending.push(entry);
+  if(!writeLS(PENDING_KEY, state.pending)){
+    // 용량 초과 시: 로컬 사진 데이터를 제외하고 다시 저장 (기록 자체는 보존)
+    const slim = state.pending.map(p=>({...p, rec:{...p.rec, photos:(p.rec.photos||[]).filter(u=>!String(u).startsWith('data:'))}}));
+    writeLS(PENDING_KEY, slim);
+  }
+  mergeRecords(); renderAll(); closeForm();
   btn.disabled=false; btn.textContent='기록 저장';
+
+  if(!CONFIG.GAS_URL){ toast('GAS_URL 미설정 · 화면에만 표시됩니다'); return; }
+  await flushQueue();
+  toast(entry.sent ? (isEdit?'수정되었습니다':'기록이 저장되었습니다') : '오프라인 · 연결되면 자동 저장됩니다');
+  setTimeout(loadData, 4000);
+  setTimeout(loadData, 20000);
 };
 
 function editRecord(id){
@@ -787,10 +861,13 @@ function editRecord(id){
 }
 async function deleteRecord(id){
   if(!confirm('이 기록을 삭제할까요? 되돌릴 수 없습니다.')) return;
-  state.records=state.records.filter(x=>x.id!==id);
-  try{ localStorage.setItem(CACHE_KEY, JSON.stringify(state.records)); }catch(e){}
-  renderAll(); $('#detailOverlay').classList.remove('open');
-  if(CONFIG.GAS_URL){ try{ await fetch(CONFIG.GAS_URL,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'delete',id})}); toast('삭제되었습니다'); setTimeout(loadData,3000);}catch(e){} }
+  // 대기 중이던 추가/수정이면 큐에서 제거
+  state.pending = state.pending.filter(p=>p.rec.id!==id);
+  // 삭제 표시 추가 (스테일 CSV가 되살리지 못하게)
+  if(!state.tomb.some(t=>t.id===id)) state.tomb.push({id, ts:Date.now(), sent:false});
+  writeLS(PENDING_KEY, state.pending); writeLS(TOMB_KEY, state.tomb);
+  mergeRecords(); renderAll(); $('#detailOverlay').classList.remove('open');
+  if(CONFIG.GAS_URL){ await flushQueue(); toast('삭제되었습니다'); setTimeout(loadData, 4000); }
   else toast('삭제됨 (화면)');
 }
 
@@ -816,6 +893,8 @@ bindQchips('#fWeather','weather'); bindQchips('#fCampType','campType'); bindQchi
 
 /* ============================================================ init */
 loadData();
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) loadData(); });
+window.addEventListener('online', loadData);
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{})); }
 </script>
 </body>
