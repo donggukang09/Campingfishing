@@ -653,7 +653,9 @@ function openDayList(ds, recs){
       return `<div class="card" data-id="${r.id}" style="margin-bottom:10px">${ph?`<img class="thumb" src="${esc(ph)}">`:`<div class="thumb empty">${r.type==='camping'?'⛺':'🎣'}</div>`}<div class="body"><div class="top"><span class="badge ${r.type}">${r.type==='camping'?'⛺ 캠핑':'🎣 낚시'}</span></div><div class="title">${esc(r.title)||'(제목 없음)'}</div><div class="meta">${starHTML(r.rating)}</div></div></div>`;
     }).join('');
   $$('#detailBody .card').forEach(c=>c.onclick=()=>openDetail(c.dataset.id));
+  const wasOpen=$('#detailOverlay').classList.contains('open');
   $('#detailOverlay').classList.add('open');
+  if(!wasOpen) pushModal(()=>$('#detailOverlay').classList.remove('open'));
 }
 
 /* ============================================================ detail */
@@ -688,10 +690,12 @@ function openDetail(id){
       <button class="btn-edit" onclick="editRecord('${r.id}')">✏️ 수정</button>
       <button class="btn-del" onclick="deleteRecord('${r.id}')">🗑️ 삭제</button>
     </div>`;
+  const wasOpen=$('#detailOverlay').classList.contains('open');
   $('#detailOverlay').classList.add('open');
+  if(!wasOpen) pushModal(()=>$('#detailOverlay').classList.remove('open'));
 }
-function openLightbox(src){ $('#lightboxImg').src=src; $('#lightbox').classList.add('open'); }
-$('#lightbox').onclick=()=>$('#lightbox').classList.remove('open');
+function openLightbox(src){ $('#lightboxImg').src=src; $('#lightbox').classList.add('open'); pushModal(()=>$('#lightbox').classList.remove('open')); }
+$('#lightbox').onclick=()=>closeModal();
 
 /* ============================================================ form */
 function setType(t){
@@ -715,8 +719,8 @@ function resetForm(){
   renderPhotoGrid();
   $('#formTitle').textContent='새 기록';
 }
-function openForm(){ resetForm(); $('#formOverlay').classList.add('open'); setTimeout(initPickMap, 250); }
-function closeForm(){ $('#formOverlay').classList.remove('open'); }
+function openForm(){ resetForm(); $('#formOverlay').classList.add('open'); pushModal(()=>$('#formOverlay').classList.remove('open')); setTimeout(initPickMap, 250); }
+function closeForm(){ closeModal(); }
 
 /* photos */
 function renderPhotoGrid(){
@@ -869,7 +873,9 @@ function editRecord(id){
     $('#fBait').value=r.bait||''; }
   state.form.existing=photosOf(r); state.form.photos=[];
   renderPhotoGrid();
-  $('#formOverlay').classList.add('open'); setTimeout(initPickMap,250);
+  $('#formOverlay').classList.add('open');
+  replaceModal(()=>$('#formOverlay').classList.remove('open'));  // 상세 → 수정 전환: 같은 히스토리 항목 재사용
+  setTimeout(initPickMap,250);
 }
 async function deleteRecord(id){
   if(!confirm('이 기록을 삭제할까요? 되돌릴 수 없습니다.')) return;
@@ -878,10 +884,17 @@ async function deleteRecord(id){
   // 삭제 표시 추가 (스테일 CSV가 되살리지 못하게)
   if(!state.tomb.some(t=>t.id===id)) state.tomb.push({id, ts:Date.now(), sent:false});
   writeLS(PENDING_KEY, state.pending); writeLS(TOMB_KEY, state.tomb);
-  mergeRecords(); renderAll(); $('#detailOverlay').classList.remove('open');
+  mergeRecords(); renderAll(); closeModal();
   if(CONFIG.GAS_URL){ await flushQueue(); toast('삭제되었습니다'); setTimeout(loadData, 4000); }
   else toast('삭제됨 (화면)');
 }
+
+/* ============================================================ 뒤로가기(모달 히스토리) */
+const modalStack = [];
+function pushModal(hideFn){ modalStack.push(hideFn); try{ history.pushState({fl:modalStack.length}, ''); }catch(e){} }
+function replaceModal(hideFn){ if(modalStack.length) modalStack[modalStack.length-1]=hideFn; else pushModal(hideFn); }
+function closeModal(){ if(modalStack.length) history.back(); }   // ✕ 버튼/닫기 → 뒤로가기와 동일 경로
+window.addEventListener('popstate', ()=>{ if(modalStack.length){ const hide=modalStack.pop(); try{ hide(); }catch(e){} } });
 
 /* ============================================================ nav & events */
 function switchTab(tab){
@@ -896,7 +909,7 @@ $('#calPrev').onclick=()=>{ state.calDate.setMonth(state.calDate.getMonth()-1); 
 $('#calNext').onclick=()=>{ state.calDate.setMonth(state.calDate.getMonth()+1); renderCalendar(); };
 $('#fab').onclick=openForm;
 $('#formClose').onclick=closeForm;
-$('#detailClose').onclick=()=>$('#detailOverlay').classList.remove('open');
+$('#detailClose').onclick=()=>closeModal();
 /* 팝업 바깥(옆쪽) 클릭으로는 닫히지 않습니다 — ✕ 버튼으로만 닫힙니다 */
 $('#tBtnCamp').onclick=()=>{ setType('camping'); if(pickMarker) pickMarker.setIcon(pinIcon('camping')); };
 $('#tBtnFish').onclick=()=>{ setType('fishing'); if(pickMarker) pickMarker.setIcon(pinIcon('fishing')); };
